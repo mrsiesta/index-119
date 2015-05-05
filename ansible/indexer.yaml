@@ -1,0 +1,22 @@
+- hosts: all
+
+  sudo: True
+
+  vars:
+    system_packages:
+      - git
+
+  tasks:
+
+  - name: add es key
+    apt_key: keyserver=pgp.mit.edu id=D88E42B4
+
+  - name: add esrepo
+    apt_repository: repo='deb http://packages.elasticsearch.org/elasticsearch/1.4/debian stable main' state=present
+
+  - name: install elasticsearch
+    apt: name={{ item }} state=present
+    with_items:
+      - openjdk-7-jre-headless
+      - elasticsearch=1.4.4
+
