@@ -18,7 +18,7 @@ def get_helper(queue):
       response = get_headers(firstPost, firstPost+articleIncrement)
       insert_headers(response)
     except Exception, e:
-      print("error on " + fileName + " " + str(e))
+      print(str(e))
 
 def get_headers(firstPost, lastPost):
   esIndex = 'indextest'
@@ -73,10 +73,23 @@ def insert_headers(headers):
     }
   }
 
+  esMapping = {
+    "nntp": {
+      "properties": {
+        "Subject": { 
+          "type": "string",
+          "index": "not_analyzed"
+        }
+      }
+    }
+  }
+
+
   print "inserting " + str(len(headers)) + " into ES"  
 
   es = Elasticsearch([esHost], sniff_on_start=True)
   es.indices.create(index=esIndex, body = esIndexSettings, ignore=400)  
+  es.indices.put_mapping(index=esIndex, doc_type="nntp", body=esMapping)
 
   if len(headers) > 0:
     helpers.bulk(es, headers)
@@ -84,7 +97,7 @@ def insert_headers(headers):
   return True
 
 
-threads = 15
+threads = 2
 credsFile = open("creds.yaml", 'r')
 creds = yaml.load(credsFile)
 nntpServer = nntplib.NNTP(creds['host'], 119, creds['user'], creds['password'])  
