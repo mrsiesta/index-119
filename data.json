@@ -1,4 +1,9 @@
 {
+  "query":{
+    "regexp":{
+      "Subject": ".*\\([0-9]+\\/[0-9]+\\)"
+    }
+  },
   "size": 1,
-  "fields": "Subject"
+  "fields": ["Date","Subject"]
 }
