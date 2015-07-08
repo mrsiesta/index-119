@@ -2,122 +2,119 @@
 
 import nntplib
 import Queue
-import sys
 import threading
 import yaml
-from pprint import pprint
 from elasticsearch import Elasticsearch
 from elasticsearch import helpers
 
 def get_helper(queue):
-  while True:
-    if queue.empty() == True:
-      return 
-    firstPost = queue.get()
-    try:
-      response = get_headers(firstPost, firstPost+articleIncrement)
-      insert_headers(response)
-    except Exception, e:
-      print(str(e))
+    while True:
+        if queue.empty():
+            return 
+        first_post = queue.get()
+        try:
+            response = get_headers(first_post, first_post + article_increment)
+            insert_headers(response)
+        except Exception, e:
+            print(str(e))
 
-def get_headers(firstPost, lastPost):
-  esIndex = 'indextest'
-
-  #get usenet creds
-  credsFile = open("creds.yaml", 'r')
-  creds = yaml.load(credsFile)  
-
-  #setup connection to usenet server
-  nntpServer = nntplib.NNTP(creds['host'], 119, creds['user'], creds['password'])  
-
-  #set current group
-  resp, count, first, last, name = nntpServer.group("alt.binaries.boneless")  
-
-  #this is the data structure we're going to return
-  finalHeaders = []  
-
-  for postNumber in range(firstPost, lastPost):
-    try: 
-      header = nntpServer.head(str(postNumber))
-      currentHeader = {
-        '_index': esIndex,
-        '_type': 'nntp',
-        '_source': {
-          'Article-Number': postNumber
-        }
-      }
-      for entry in header[3]:
-        splitString = entry.split(":",1)
-        splitString[1] = splitString[1].lstrip()
-        if splitString[0] == "Bytes" or splitString[0] == "Lines":
-          currentHeader['_source'][splitString[0]] = int(splitString[1])
-        if splitString[0] == "Newsgroups":
-          currentHeader['_source'][splitString[0]] = splitString[1].split(",")
-        else:
-          currentHeader['_source'][splitString[0]] = unicode(splitString[1], "utf-8")  
-
-      finalHeaders.append(currentHeader)
-    except Exception as e:
-      print str(e)
-      print postNumber
-
-  return finalHeaders
+def get_headers(first_post, last_post):
+    elastic_index = 'indextest'
+  
+    # get usenet creds
+    creds_file = open("creds.yaml", 'r')
+    creds = yaml.load(creds_file)  
+  
+    # setup connection to usenet server
+    nntp_server = nntplib.NNTP(creds['host'], 119, creds['user'], creds['password'])  
+  
+    # set current group
+    resp, count, first, last, name = nntp_server.group("alt.binaries.boneless")  
+  
+    # this is the data structure we're going to return
+    final_headers = []  
+  
+    for post_number in range(first_post, last_post):
+        try: 
+            header = nntp_server.head(str(post_number))
+            current_header = {'_index': elastic_index, '_type': 'nntp', '_source': {'Article-Number': post_number}}
+            for entry in header[3]:
+                split_string = entry.split(":",1)
+                split_string[1] = split_string[1].lstrip()
+                if split_string[0] == "Bytes" or split_string[0] == "Lines":
+                    current_header['_source'][split_string[0]] = int(split_string[1])
+                if split_string[0] == "Newsgroups":
+                    current_header['_source'][split_string[0]] = split_string[1].split(",")
+                else:
+                    current_header['_source'][split_string[0]] = unicode(split_string[1], "utf-8")  
+      
+            final_headers.append(current_header)
+        except Exception as e:
+            print str(e)
+            print post_number
+  
+    return final_headers
 
 def insert_headers(headers):
-  esHost = "localhost"
-  esIndex = 'indextest'
-  esIndexSettings = {
-    "settings": {
-      "number_of_shards": 5,
-      "number_of_replicas": 0,
+    elastic_host = "localhost"
+    elastic_index = 'indextest'
+    elastic_index_settings = {
+      "settings": {
+        "number_of_shards": 5,
+        "number_of_replicas": 0,
+      }
     }
-  }
-
-  esMapping = {
-    "nntp": {
-      "properties": {
-        "Subject": { 
-          "type": "string",
-          "index": "not_analyzed"
+  
+    elastic_mapping = {
+      "nntp": {
+        "properties": {
+          "Subject": { 
+            "type": "string",
+            "index": "not_analyzed"
+          }
         }
       }
     }
-  }
+
+    print "inserting " + str(len(headers)) + " into ES"  
+  
+    es = Elasticsearch([elastic_host], sniff_on_start=True)
+    es.indices.create(index=elastic_index, body=elastic_index_settings, ignore=400)  
+    es.indices.put_mapping(index=elastic_index, doc_type="nntp", body=elastic_mapping)
+  
+    if len(headers) > 0:
+      helpers.bulk(es, headers)
+  
+    return True
 
 
-  print "inserting " + str(len(headers)) + " into ES"  
 
-  es = Elasticsearch([esHost], sniff_on_start=True)
-  es.indices.create(index=esIndex, body = esIndexSettings, ignore=400)  
-  es.indices.put_mapping(index=esIndex, doc_type="nntp", body=esMapping)
-
-  if len(headers) > 0:
-    helpers.bulk(es, headers)
-
-  return True
-
-
+### MAIN
+# TODO Cleanup - started resolving PEP-8 related
+# TODO Add args for server, creds, article_increment, number of threads
+# TODO default threads to number of cores -2
+# TODO Add logging
 threads = 2
-credsFile = open("creds.yaml", 'r')
-creds = yaml.load(credsFile)
-nntpServer = nntplib.NNTP(creds['host'], 119, creds['user'], creds['password'])  
-resp, count, first, last, name = nntpServer.group("alt.binaries.boneless")  
-articleIncrement = 100
+creds_file = open("creds.yaml", 'r')
+creds = yaml.load(creds_file)
+nntp_server = nntplib.NNTP(creds['host'], 119, creds['user'], creds['password'])  
+resp, count, first, last, name = nntp_server.group("alt.binaries.boneless")  
+article_increment = 100
 print first
 print last
-workList = []
-for blah in range(int(first),int(last),articleIncrement):
-  workList.append(blah)
+work_list = []
+for blah in range(int(first),int(last),article_increment):
+    work_list.append(blah)
 
-print len(workList)
+print len(work_list)
 
 queue = Queue.Queue()
-activeThreads = []
+active_threads = []
 
-for item in workList:
-  queue.put(item)
+for item in work_list:
+    queue.put(item)
 
 for i in range(threads):
-  t = threading.Thread(target=get_helper, args=(queue,))
-  activeThreads.append(t)
-  t.start()
+    thread = threading.Thread(target=get_helper, args=(queue,))
+    active_threads.append(thread)
+    thread.start()
